@@ -1,15 +1,22 @@
-# Camera Live Stream to YouTube
-# Production Dockerfile
+# Camera Live Stream Controller
+# Python image with Docker CLI for container management
 
 FROM python:3.11-slim
 
 LABEL maintainer="Camera Live Streaming System"
-LABEL description="RTSP to YouTube Live streaming with automatic rotation"
+LABEL description="Controller for RTSP to YouTube Live streaming"
 
-# Install FFmpeg and system dependencies
+# Install Docker CLI
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
     curl \
+    ca-certificates \
+    gnupg \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && chmod a+r /etc/apt/keyrings/docker.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends docker-ce-cli \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -31,10 +38,6 @@ COPY src/ /app/src/
 # Set Python path
 ENV PYTHONPATH=/app/src
 ENV PYTHONUNBUFFERED=1
-
-# Health check
-HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
-    CMD pgrep -f "python.*main.py" > /dev/null && pgrep -f ffmpeg > /dev/null || exit 1
 
 # Run the application
 CMD ["python", "/app/src/main.py"]

@@ -1,7 +1,10 @@
+# Production Docker Compose for Camera Live Stream
+# Uses pre-built image from GitHub Container Registry
+
 services:
   # Controller service - manages YouTube API and stream lifecycle
   controller:
-    build: .
+    image: ghcr.io/kimtrien/camera-live:latest
     container_name: camera-controller
     restart: unless-stopped
     env_file:
