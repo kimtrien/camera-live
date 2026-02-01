@@ -1,0 +1,16 @@
+services:
+  camera-live:
+    build: .
+    container_name: camera-live
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    network_mode: host
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
