@@ -13,47 +13,16 @@ Hệ thống tự động stream camera RTSP lên YouTube Live với tính năng
 
 ## Yêu cầu
 
-1. Đã cài đặt Docker và Docker Compose
+1. Docker và Docker Compose đã cài đặt
 2. Camera RTSP có thể truy cập từ máy chủ
 3. Tài khoản Google Cloud với YouTube Data API v3 đã bật
 4. Thông tin xác thực OAuth 2.0
 
+---
+
 ## Hướng dẫn cài đặt
 
-### Bước 1: Cấu hình file .env
-
-```bash
-cd camera-live
-cp .env.example .env
-```
-
-Mở file `.env` và chỉnh sửa các thông số:
-
-```env
-# URL camera RTSP của bạn
-RTSP_URL=rtsp://admin:matkhau@192.168.1.100:554/cam/realmonitor?channel=1&subtype=0
-
-# Thông tin OAuth từ Google Cloud Console
-YOUTUBE_CLIENT_ID=your_client_id
-YOUTUBE_CLIENT_SECRET=your_client_secret
-
-# Thời lượng mỗi stream (giờ)
-STREAM_DURATION_HOURS=10
-
-# Mẫu tiêu đề stream
-STREAM_TITLE_TEMPLATE=Camera Live - {datetime}
-
-# Mô tả stream
-STREAM_DESCRIPTION=Camera giám sát 24/7
-
-# Chế độ riêng tư: public, unlisted, hoặc private
-PRIVACY_STATUS=public
-
-# Múi giờ
-TIMEZONE=Asia/Ho_Chi_Minh
-```
-
-### Bước 2: Tạo OAuth Credentials trên Google Cloud
+### Bước 1: Tạo OAuth Credentials trên Google Cloud
 
 1. Truy cập [Google Cloud Console](https://console.cloud.google.com)
 
@@ -74,11 +43,11 @@ TIMEZONE=Asia/Ho_Chi_Minh
      - User support email: email của bạn
      - Developer contact: email của bạn
    - Nhấn "Save and Continue"
-   - Ở phần Scopes, nhấn "Add or Remove Scopes"
+   - Ở phần **Scopes**, nhấn "Add or Remove Scopes"
    - Tìm và thêm: `https://www.googleapis.com/auth/youtube`
    - Nhấn "Save and Continue"
-   - Ở phần Test users, nhấn "Add Users"
-   - Thêm email Google của bạn
+   - Ở phần **Test users**, nhấn "Add Users"
+   - **Thêm email Google của bạn** (quan trọng!)
    - Nhấn "Save and Continue"
 
 5. **Tạo OAuth Client ID**:
@@ -89,42 +58,96 @@ TIMEZONE=Asia/Ho_Chi_Minh
    - Click "Create"
    - **Lưu lại Client ID và Client Secret**
 
-### Bước 3: Lấy Refresh Token
-
-Chạy lệnh sau để xác thực và lấy refresh token:
+### Bước 2: Cấu hình file .env
 
 ```bash
-docker compose run --rm camera-live python /app/src/oauth_setup.py
+cd camera-live
+cp .env.example .env
 ```
 
-**Lưu ý**: Nếu chưa build image, hãy build trước:
+Mở file `.env` và chỉnh sửa:
+
+```env
+# URL camera RTSP của bạn
+RTSP_URL=rtsp://admin:matkhau@192.168.1.100:554/cam/realmonitor?channel=1&subtype=0
+
+# Thông tin OAuth từ Google Cloud Console
+YOUTUBE_CLIENT_ID=your_client_id_here
+YOUTUBE_CLIENT_SECRET=your_client_secret_here
+
+# Thời lượng mỗi stream (giờ)
+STREAM_DURATION_HOURS=10
+
+# Mẫu tiêu đề stream
+STREAM_TITLE_TEMPLATE=Camera Live - {datetime}
+
+# Mô tả stream
+STREAM_DESCRIPTION=Camera giám sát 24/7
+
+# Chế độ riêng tư: public, unlisted, hoặc private
+PRIVACY_STATUS=public
+
+# Múi giờ
+TIMEZONE=Asia/Ho_Chi_Minh
+```
+
+### Bước 3: Lấy OAuth Token
+
+> ⚠️ **QUAN TRỌNG**: Bước này phải chạy **trực tiếp trên máy tính có trình duyệt**, KHÔNG chạy trong Docker!
+
+```bash
+# 1. Tạo virtual environment (chỉ cần làm 1 lần)
+python3 -m venv .venv
+
+# 2. Kích hoạt virtual environment
+source .venv/bin/activate
+
+# 3. Cài đặt thư viện cần thiết
+pip install requests
+
+# 4. Chạy OAuth setup
+python src/oauth_setup.py \
+  --client-id "YOUR_CLIENT_ID" \
+  --client-secret "YOUR_CLIENT_SECRET"
+```
+
+**Hoặc** nếu đã cấu hình trong `.env`:
+
+```bash
+source .venv/bin/activate
+python src/oauth_setup.py \
+  --client-id "$(grep YOUTUBE_CLIENT_ID .env | cut -d= -f2)" \
+  --client-secret "$(grep YOUTUBE_CLIENT_SECRET .env | cut -d= -f2)"
+```
+
+**Quy trình xác thực:**
+
+1. Script sẽ tự động **mở trình duyệt**
+2. **Đăng nhập** bằng tài khoản Google đã thêm vào Test Users
+3. **Cấp quyền** cho ứng dụng
+4. Tab sẽ hiển thị "Xác thực thành công!"
+5. Token được lưu tự động vào `data/token.json`
+
+### Bước 4: Build Docker Image
 
 ```bash
 docker compose build
 ```
 
-Khi chạy lệnh, hệ thống sẽ:
-
-1. Hiển thị một URL
-2. Mở URL đó trong trình duyệt
-3. Đăng nhập bằng tài khoản Google đã thêm vào Test Users
-4. Cấp quyền cho ứng dụng
-5. Token sẽ được lưu tự động vào thư mục `data/`
-
-Nếu muốn dùng refresh token trong `.env`, copy token hiển thị trên màn hình vào biến `YOUTUBE_REFRESH_TOKEN`.
-
-### Bước 4: Chạy hệ thống
+### Bước 5: Chạy hệ thống
 
 ```bash
 docker compose up -d
 ```
 
-Xong! Hệ thống sẽ:
+**Xong!** Hệ thống sẽ:
 
-1. Tạo một livestream mới trên YouTube
-2. Bắt đầu stream từ camera RTSP
-3. Tự động xoay sang stream mới sau 10 giờ
-4. Tiếp tục vô hạn cho đến khi bạn dừng
+1. ✅ Tạo một livestream mới trên YouTube
+2. ✅ Bắt đầu stream từ camera RTSP
+3. ✅ Tự động xoay sang stream mới sau 10 giờ
+4. ✅ Tiếp tục vĩnh viễn cho đến khi bạn dừng
+
+---
 
 ## Các lệnh thường dùng
 
@@ -152,6 +175,8 @@ docker compose up -d
 docker compose ps
 ```
 
+---
+
 ## Cấu hình chi tiết
 
 ### Các biến môi trường
@@ -161,7 +186,7 @@ docker compose ps
 | `RTSP_URL`              | URL camera RTSP             | Bắt buộc                 |
 | `YOUTUBE_CLIENT_ID`     | OAuth Client ID             | Bắt buộc                 |
 | `YOUTUBE_CLIENT_SECRET` | OAuth Client Secret         | Bắt buộc                 |
-| `YOUTUBE_REFRESH_TOKEN` | OAuth Refresh Token         | Từ setup                 |
+| `YOUTUBE_REFRESH_TOKEN` | OAuth Refresh Token         | Từ token.json            |
 | `STREAM_DURATION_HOURS` | Thời lượng mỗi stream (giờ) | 10                       |
 | `STREAM_TITLE_TEMPLATE` | Mẫu tiêu đề                 | Camera Live - {datetime} |
 | `STREAM_DESCRIPTION`    | Mô tả stream                | 24/7 Camera Livestream   |
@@ -171,37 +196,50 @@ docker compose ps
 
 ### Các placeholder cho tiêu đề
 
-- `{date}` - Ngày hiện tại (YYYY-MM-DD)
-- `{time}` - Giờ hiện tại (HH:MM)
-- `{datetime}` - Ngày và giờ
-- `{timestamp}` - Timestamp đầy đủ
-- `{stream_number}` - Số thứ tự stream
+| Placeholder       | Ví dụ            | Mô tả            |
+| ----------------- | ---------------- | ---------------- |
+| `{date}`          | 2026-02-01       | Ngày hiện tại    |
+| `{time}`          | 16:30            | Giờ hiện tại     |
+| `{datetime}`      | 2026-02-01 16:30 | Ngày và giờ      |
+| `{timestamp}`     | 20260201_163000  | Timestamp đầy đủ |
+| `{stream_number}` | 1                | Số thứ tự stream |
 
 ### Ví dụ mẫu tiêu đề
 
 ```env
-# Ví dụ 1: Tiêu đề đơn giản
+# Tiêu đề đơn giản
 STREAM_TITLE_TEMPLATE=Camera Nhà - {date}
-# Kết quả: Camera Nhà - 2026-02-01
+# → Camera Nhà - 2026-02-01
 
-# Ví dụ 2: Tiêu đề chi tiết
+# Tiêu đề chi tiết
 STREAM_TITLE_TEMPLATE=Phòng Khách Live #{stream_number} - {datetime}
-# Kết quả: Phòng Khách Live #1 - 2026-02-01 16:30
+# → Phòng Khách Live #1 - 2026-02-01 16:30
 
-# Ví dụ 3: Tiêu đề tiếng Việt
+# Tiêu đề tiếng Việt
 STREAM_TITLE_TEMPLATE=Giám sát 24/7 - Bắt đầu lúc {time}
-# Kết quả: Giám sát 24/7 - Bắt đầu lúc 16:30
+# → Giám sát 24/7 - Bắt đầu lúc 16:30
 ```
+
+---
 
 ## Xử lý sự cố
 
-### Stream không khởi động
+### ❌ Lỗi "OOB flow has been blocked"
+
+Google đã chặn OOB flow. **Giải pháp**: Chạy OAuth setup trực tiếp trên máy tính có trình duyệt, không trong Docker.
+
+```bash
+source .venv/bin/activate
+python src/oauth_setup.py --client-id "ID" --client-secret "SECRET"
+```
+
+### ❌ Stream không khởi động
 
 1. **Kiểm tra URL RTSP**:
 
    ```bash
-   # Thử phát RTSP bằng VLC hoặc ffplay
-   ffplay "rtsp://admin:password@192.168.1.100:554/cam/realmonitor?channel=1&subtype=0"
+   # Thử phát bằng VLC hoặc ffplay
+   ffplay "rtsp://admin:password@192.168.1.100:554/..."
    ```
 
 2. **Kiểm tra logs**:
@@ -211,33 +249,40 @@ STREAM_TITLE_TEMPLATE=Giám sát 24/7 - Bắt đầu lúc {time}
    ```
 
 3. **Kiểm tra token OAuth**:
-   - Xóa file `data/token.json`
-   - Chạy lại bước lấy refresh token
+   - Đảm bảo file `data/token.json` tồn tại
+   - Thử chạy lại OAuth setup nếu token hết hạn
 
-### Lỗi API quota
+### ❌ Lỗi "Access Not Configured"
+
+- Đảm bảo đã bật YouTube Data API v3 trong Google Cloud Console
+- Kiểm tra đã thêm email vào Test Users
+
+### ❌ Lỗi API quota
 
 - YouTube API có giới hạn 10,000 đơn vị/ngày
 - Mỗi lần tạo stream tiêu tốn khoảng 100 đơn vị
 - Nếu hết quota, phải đợi đến 0:00 giờ Pacific Time
 
-### FFmpeg liên tục crash
+### ❌ FFmpeg liên tục crash
 
 1. Kiểm tra kết nối mạng đến camera
 2. Kiểm tra camera có đang hoạt động
-3. Thử giảm chất lượng stream (dùng subtype khác)
+3. Thử dùng subtype khác trong URL RTSP
 
-### Container không chạy
+### ❌ Container không chạy
 
 ```bash
 # Kiểm tra logs chi tiết
 docker compose logs camera-live
 
-# Kiểm tra container đang chạy
+# Kiểm tra container
 docker ps -a
 
-# Khởi động lại container
+# Khởi động lại
 docker compose restart
 ```
+
+---
 
 ## Cấu trúc thư mục
 
@@ -249,34 +294,58 @@ camera-live/
 │   ├── ffmpeg_runner.py # Quản lý FFmpeg
 │   ├── scheduler.py     # Lập lịch xoay stream
 │   └── oauth_setup.py   # Script setup OAuth
-├── data/                # Lưu trữ token (tự động tạo)
+├── data/
+│   └── token.json       # Token OAuth (tự động tạo)
 ├── logs/                # File log (tự động tạo)
+├── .venv/               # Python virtual environment
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
 ├── .env.example
-├── .env                 # File cấu hình của bạn
+├── .env                 # Cấu hình của bạn
 ├── README.md            # Tài liệu tiếng Anh
-└── README.vi.md         # Tài liệu tiếng Việt
+└── README.vi.md         # Tài liệu tiếng Việt (file này)
 ```
+
+---
 
 ## Ghi chú quan trọng
 
-1. **YouTube giới hạn livestream 12 giờ liên tục** - Hệ thống tự động xoay trước thời hạn này
+1. **YouTube giới hạn livestream 12 giờ** - Hệ thống tự động xoay trước thời hạn
 
-2. **Chất lượng stream phụ thuộc camera** - Sử dụng stream copy, không nâng/hạ chất lượng
+2. **Chất lượng stream phụ thuộc camera** - Không nâng/hạ chất lượng
 
-3. **Cần kết nối internet ổn định** - Nếu mất kết nối, stream sẽ dừng và tự khởi động lại
+3. **Cần kết nối internet ổn định** - Stream sẽ tự khởi động lại nếu mất kết nối
 
-4. **Kiểm tra YouTube Studio** để xem stream đang hoạt động: https://studio.youtube.com/channel/UC.../livestreaming
+4. **Kiểm tra YouTube Studio** để xem stream:
+   https://studio.youtube.com/channel/UC.../livestreaming
 
-## Hỗ trợ
+5. **Token OAuth có thời hạn** - Refresh token thường có hiệu lực 6 tháng. Nếu hết hạn, chạy lại OAuth setup.
 
-Nếu gặp vấn đề:
+---
 
-1. Kiểm tra logs: `docker compose logs -f`
-2. Đọc phần Xử lý sự cố ở trên
-3. Kiểm tra kết nối camera và internet
+## Tóm tắt nhanh
+
+```bash
+# 1. Clone và cấu hình
+cp .env.example .env
+# Sửa .env với thông tin của bạn
+
+# 2. Lấy OAuth token (chạy trên máy có browser)
+python3 -m venv .venv
+source .venv/bin/activate
+pip install requests
+python src/oauth_setup.py --client-id "ID" --client-secret "SECRET"
+
+# 3. Build và chạy
+docker compose build
+docker compose up -d
+
+# 4. Xem logs
+docker compose logs -f
+```
+
+---
 
 ## License
 

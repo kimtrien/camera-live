@@ -4,7 +4,7 @@ Automated RTSP camera streaming to YouTube Live with automatic stream rotation.
 
 ## Features
 
-- **Automatic YouTube Live Creation**: Creates new livestreams via YouTube Data API v3
+- **Automatic YouTube Live Creation**: Creates livestreams via YouTube Data API v3
 - **Stream Rotation**: Automatically rotates streams every N hours (default: 10)
 - **No Transcoding**: Uses FFmpeg stream copy for minimal CPU usage
 - **OAuth2 Authentication**: Secure token-based authentication
@@ -18,53 +18,93 @@ Automated RTSP camera streaming to YouTube Live with automatic stream rotation.
 3. Google Cloud project with YouTube Data API v3 enabled
 4. OAuth 2.0 credentials (Desktop app type)
 
+---
+
 ## Quick Start
 
-### 1. Clone and Configure
-
-```bash
-cd camera-live
-cp .env.example .env
-# Edit .env with your configuration
-```
-
-### 2. Get YouTube OAuth Credentials
+### Step 1: Create OAuth Credentials on Google Cloud
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com)
 2. Create a new project (or select existing)
 3. Enable **YouTube Data API v3**
-4. Go to **Credentials** → **Create Credentials** → **OAuth 2.0 Client ID**
-5. Select **Desktop app** as application type
-6. Download or copy the Client ID and Client Secret
-7. Add your email to **Test users** if app is in testing mode
+4. Go to **OAuth consent screen**:
+   - Choose "External"
+   - Add your email to **Test users**
+5. Go to **Credentials** → **Create Credentials** → **OAuth client ID**
+   - Select **Desktop app** as application type
+6. Save the **Client ID** and **Client Secret**
 
-### 3. Generate OAuth Token
-
-Run the OAuth setup script to get your refresh token:
+### Step 2: Configure .env
 
 ```bash
-# Using Docker
-docker compose run --rm camera-live python /app/src/oauth_setup.py
-
-# Or locally with Python
-pip install -r requirements.txt
-python src/oauth_setup.py --client-id YOUR_ID --client-secret YOUR_SECRET
+cp .env.example .env
+# Edit .env with your configuration
 ```
 
-Follow the browser prompts to authorize. Save the refresh token to your `.env` file.
+### Step 3: Get OAuth Token
 
-### 4. Start Streaming
+> ⚠️ **IMPORTANT**: Run this directly on your computer with a browser, NOT inside Docker!
 
 ```bash
+# Create virtual environment (one-time)
+python3 -m venv .venv
+
+# Activate and install dependencies
+source .venv/bin/activate
+pip install requests
+
+# Run OAuth setup
+python src/oauth_setup.py \
+  --client-id "YOUR_CLIENT_ID" \
+  --client-secret "YOUR_CLIENT_SECRET"
+```
+
+The script will:
+
+1. Open your browser automatically
+2. You sign in with Google and grant permissions
+3. Token is saved to `data/token.json`
+
+### Step 4: Build and Run
+
+```bash
+# Build Docker image
+docker compose build
+
+# Start streaming
 docker compose up -d
 ```
 
-That's it! The system will:
+That's it! The system will automatically:
 
-1. Create a YouTube livestream
-2. Start streaming from your RTSP camera
-3. Automatically rotate to a new stream every 10 hours
-4. Continue indefinitely until stopped
+- Create a YouTube livestream
+- Start streaming from your RTSP camera
+- Rotate to a new stream every 10 hours
+- Continue indefinitely until stopped
+
+---
+
+## Commands
+
+```bash
+# Start in background
+docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Stop streaming
+docker compose down
+
+# Restart
+docker compose restart
+
+# Rebuild after changes
+docker compose build --no-cache
+docker compose up -d
+```
+
+---
 
 ## Configuration
 
@@ -75,7 +115,6 @@ All configuration is via the `.env` file:
 | `RTSP_URL`              | RTSP camera URL          | Required                 |
 | `YOUTUBE_CLIENT_ID`     | OAuth client ID          | Required                 |
 | `YOUTUBE_CLIENT_SECRET` | OAuth client secret      | Required                 |
-| `YOUTUBE_REFRESH_TOKEN` | OAuth refresh token      | From setup               |
 | `STREAM_DURATION_HOURS` | Hours per stream         | 10                       |
 | `STREAM_TITLE_TEMPLATE` | Title template           | Camera Live - {datetime} |
 | `STREAM_DESCRIPTION`    | Stream description       | 24/7 Camera Livestream   |
@@ -91,22 +130,33 @@ All configuration is via the `.env` file:
 - `{timestamp}` - Full timestamp
 - `{stream_number}` - Sequential stream number
 
-## Commands
+---
 
-```bash
-# Start in background
-docker compose up -d
+## Troubleshooting
 
-# View logs
-docker compose logs -f
+### "OOB flow has been blocked" error
 
-# Stop streaming
-docker compose down
+Google has deprecated OOB flow. **Solution**: Run OAuth setup directly on your computer with a browser, not inside Docker.
 
-# Rebuild after changes
-docker compose build --no-cache
-docker compose up -d
-```
+### Stream not starting
+
+1. Check RTSP URL is accessible: `ffplay rtsp://...`
+2. Verify OAuth token exists in `data/token.json`
+3. Check logs: `docker compose logs -f`
+
+### API quota errors
+
+- YouTube API has daily quotas (10,000 units/day)
+- Each stream creation uses ~100 quota units
+- Wait until Pacific Time midnight if exceeded
+
+### FFmpeg crashes
+
+- System automatically restarts FFmpeg
+- If persistent, check camera connectivity
+- Review logs in container
+
+---
 
 ## Architecture
 
@@ -130,25 +180,7 @@ docker compose up -d
     └───────────┘        └──────────────┘
 ```
 
-## Troubleshooting
-
-### Stream not starting
-
-- Check RTSP URL is accessible: `ffplay rtsp://...`
-- Verify OAuth token is valid
-- Check logs: `docker compose logs -f`
-
-### API quota errors
-
-- YouTube API has daily quotas
-- Each stream creation uses ~100 quota units
-- Default quota is 10,000 units/day
-
-### FFmpeg crashes
-
-- System automatically restarts FFmpeg
-- If persistent, check camera connectivity
-- Review FFmpeg logs in `/app/logs/`
+---
 
 ## Files
 
@@ -160,14 +192,20 @@ camera-live/
 │   ├── ffmpeg_runner.py # FFmpeg process manager
 │   ├── scheduler.py     # Stream rotation scheduler
 │   └── oauth_setup.py   # OAuth setup script
-├── data/                # Token storage (auto-created)
+├── data/
+│   └── token.json       # OAuth token (auto-generated)
 ├── logs/                # Log files (auto-created)
+├── .venv/               # Python virtual environment
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
 ├── .env.example
-└── README.md
+├── .env                 # Your configuration
+├── README.md            # English documentation
+└── README.vi.md         # Vietnamese documentation
 ```
+
+---
 
 ## License
 
