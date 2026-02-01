@@ -357,17 +357,32 @@ class YouTubeAPI:
         Returns:
             bool: True if transition successful
         """
-        logger.info("Transitioning broadcast %s to %s", broadcast_id, status)
-        
-        self._api_call_with_retry(
-            self.youtube.liveBroadcasts().transition,
-            broadcastStatus=status,
-            id=broadcast_id,
-            part="id,status"
-        )
-        
-        logger.info("Broadcast transitioned to %s successfully", status)
-        return True
+        try:
+            # Check current status first to see if transition is valid
+            current_status = self.get_broadcast_status(broadcast_id)
+            logger.info("Current broadcast status: %s, attempting transition to %s", current_status, status)
+            
+            if current_status == status:
+                logger.info("Broadcast is already in %s status", status)
+                return True
+            
+            # If trying to complete but not live/testing, it might be invalid
+            if status == "complete" and current_status not in ["live", "testing"]:
+                logger.warning("Cannot transition to 'complete' from '%s'. Broadcast must be 'live' or 'testing'.", current_status)
+                return False
+
+            self._api_call_with_retry(
+                self.youtube.liveBroadcasts().transition,
+                broadcastStatus=status,
+                id=broadcast_id,
+                part="id,status"
+            )
+            
+            logger.info("Broadcast transitioned to %s successfully", status)
+            return True
+        except Exception as e:
+            logger.error("Failed to transition broadcast: %s", str(e))
+            return False
     
     def complete_broadcast(self, broadcast_id: str) -> bool:
         """

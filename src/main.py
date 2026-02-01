@@ -171,11 +171,24 @@ class CameraLiveOrchestrator:
             
             # Complete current broadcast
             if self.current_broadcast_id and self.youtube:
+                # Give YouTube a moment to process the end of the stream
+                logger.info("Waiting 5 seconds for YouTube to process remaining data...")
+                time.sleep(5)
+                
                 logger.info("Completing current broadcast: %s", self.current_broadcast_id)
-                try:
-                    self.youtube.complete_broadcast(self.current_broadcast_id)
-                except YouTubeAPIError as e:
-                    logger.warning("Failed to complete broadcast: %s", str(e))
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        if self.youtube.complete_broadcast(self.current_broadcast_id):
+                            logger.info("Broadcast completed successfully")
+                            break
+                        else:
+                            logger.warning("Broadcast completion returned False (attempt %d/%d)", attempt + 1, max_retries)
+                    except Exception as e:
+                        logger.warning("Failed to complete broadcast (attempt %d/%d): %s", attempt + 1, max_retries, str(e))
+                    
+                    if attempt < max_retries - 1:
+                        time.sleep(5)
             
             # Brief pause between streams
             logger.info("Waiting 10 seconds before creating new stream...")
@@ -361,6 +374,8 @@ class CameraLiveOrchestrator:
         # Complete broadcast if active
         if self.current_broadcast_id and self.youtube:
             logger.info("Completing final broadcast...")
+            # Brief pause before final completion
+            time.sleep(3)
             try:
                 self.youtube.complete_broadcast(self.current_broadcast_id)
             except Exception as e:
