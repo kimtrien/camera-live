@@ -1,9 +1,11 @@
-name: Build & Push Docker Image to GHCR
+name: Build & Release Docker Image to GHCR
 
 on:
   push:
     branches:
       - main
+    tags:
+      - "v*"
 
 jobs:
   docker:
@@ -11,25 +13,43 @@ jobs:
 
     permissions:
       contents: read
-      packages: write # 👈 BẮT BUỘC cho GHCR
+      packages: write
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Login to GHCR
+      - name: Login GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Docker image
+      # ========== DEV BUILD ==========
+      - name: Build & Push (main)
+        if: startsWith(github.ref, 'refs/heads/main')
         run: |
           docker build \
             -t ghcr.io/${{ github.repository }}:latest \
+            -t ghcr.io/${{ github.repository }}:${GITHUB_SHA::7} \
+            .
+          docker push ghcr.io/${{ github.repository }}:latest
+          docker push ghcr.io/${{ github.repository }}:${GITHUB_SHA::7}
+
+      # ========== PROD RELEASE ==========
+      - name: Build & Push (tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          MAJOR=$(echo $VERSION | cut -d. -f1)
+          MINOR=$(echo $VERSION | cut -d. -f2)
+
+          docker build \
+            -t ghcr.io/${{ github.repository }}:$VERSION \
+            -t ghcr.io/${{ github.repository }}:$MAJOR.$MINOR \
+            -t ghcr.io/${{ github.repository }}:$MAJOR \
             .
 
-      - name: Push Docker image
-        run: |
-          docker push ghcr.io/${{ github.repository }}:latest
+          docker push ghcr.io/${{ github.repository }}:$VERSION
+          docker push ghcr.io/${{ github.repository }}:$MAJOR.$MINOR
+          docker push ghcr.io/${{ github.repository }}:$MAJOR
