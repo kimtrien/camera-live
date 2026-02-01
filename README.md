@@ -161,24 +161,38 @@ Google has deprecated OOB flow. **Solution**: Run OAuth setup directly on your c
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Docker Container                      │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐ │
-│  │   main.py   │  │ youtube_api │  │    scheduler    │ │
-│  │ Orchestrator│──│   API v3    │──│  Timer/Rotation │ │
-│  └──────┬──────┘  └─────────────┘  └─────────────────┘ │
-│         │                                               │
-│  ┌──────▼──────┐                                       │
-│  │ffmpeg_runner│                                       │
-│  │  RTSP→RTMP  │                                       │
-│  └──────┬──────┘                                       │
-└─────────┼───────────────────────────────────────────────┘
-          │
-    ┌─────▼─────┐        ┌──────────────┐
-    │   RTSP    │        │   YouTube    │
-    │  Camera   │        │    Live      │
-    └───────────┘        └──────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        Docker Host                              │
+│                                                                 │
+│  ┌───────────────────────────────┐      ┌────────────────────┐  │
+│  │      camera-controller        │      │camera-ffmpeg-stream│  │
+│  │   (Orchestrator Container)    │      │ (Dynamic Container)│  │
+│  │                               │      │                    │  │
+│  │  ┌─────────┐  ┌─────────────┐ │      │   ┌────────────┐   │  │
+│  │  │ main.py │  │ youtube_api │ │      │   │   FFmpeg   │   │  │
+│  │  └────┬────┘  └──────┬──────┘ │      │   │ RTSP→RTMP  │   │  │
+│  │       │              │        │      │   └─────┬──────┘   │  │
+│  │  ┌────▼────┐         │        │      │         │          │  │
+│  │  │scheduler│         │        │      │         │          │  │
+│  │  └────┬────┘         │        │      │         │          │  │
+│  │       │              │        │      │         │          │  │
+│  │  ┌────▼────────┐     │        │      │         │          │  │
+│  │  │ffmpeg_runner│─────┼────────┼──────▶         │          │  │
+│  │  │(Docker Ctrl)│     │        │      │         │          │  │
+│  │  └─────────────┘     │        │      │         │          │  │
+│  └───────────┬──────────┴────────┘      └─────────┼──────────┘  │
+└──────────────┼────────────────────────────────────┼─────────────┘
+               │                                    │
+         ┌─────▼─────┐                        ┌─────▼─────┐
+         │  YouTube  │                        │   RTSP    │
+         │   API     │                        │  Camera   │
+         └───────────┘                        └───────────┘
 ```
+
+The system uses a **Controller-Agent** architecture:
+
+1. **Controller**: A Python-based container that manages YouTube API, schedules rotations, and controls the streaming container.
+2. **FFmpeg Agent**: A high-performance `linuxserver/ffmpeg` container created dynamically by the controller to handle the actual stream.
 
 ---
 
@@ -187,17 +201,18 @@ Google has deprecated OOB flow. **Solution**: Run OAuth setup directly on your c
 ```
 camera-live/
 ├── src/
-│   ├── main.py          # Main orchestrator
+│   ├── main.py          # Main orchestrator (Controller)
 │   ├── youtube_api.py   # YouTube API client
-│   ├── ffmpeg_runner.py # FFmpeg process manager
+│   ├── ffmpeg_runner.py # Docker container manager for FFmpeg
 │   ├── scheduler.py     # Stream rotation scheduler
 │   └── oauth_setup.py   # OAuth setup script
 ├── data/
 │   └── token.json       # OAuth token (auto-generated)
 ├── logs/                # Log files (auto-created)
-├── .venv/               # Python virtual environment
-├── Dockerfile
-├── docker-compose.yml
+├── Dockerfile           # Controller image definition
+├── docker-compose.yml   # Local development setup
+├── docker-compose.prod.yml # Production deployment setup
+├── DEPLOY.md            # Detailed production deployment guide
 ├── requirements.txt
 ├── .env.example
 ├── .env                 # Your configuration

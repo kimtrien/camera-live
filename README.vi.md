@@ -222,6 +222,44 @@ STREAM_TITLE_TEMPLATE=Giám sát 24/7 - Bắt đầu lúc {time}
 
 ---
 
+## Kiến trúc
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Docker Host                              │
+│                                                                 │
+│  ┌───────────────────────────────┐      ┌────────────────────┐  │
+│  │      camera-controller        │      │camera-ffmpeg-stream│  │
+│  │    (Container Điều khiển)     │      │ (Container Stream) │  │
+│  │                               │      │    (Động)          │  │
+│  │  ┌─────────┐  ┌─────────────┐ │      │   ┌────────────┐   │  │
+│  │  │ main.py │  │ youtube_api │ │      │   │   FFmpeg   │   │  │
+│  │  └────┬────┘  └──────┬──────┘ │      │   │ RTSP→RTMP  │   │  │
+│  │       │              │        │      │   └─────┬──────┘   │  │
+│  │  ┌────▼────┐         │        │      │         │          │  │
+│  │  │scheduler│         │        │      │         │          │  │
+│  │  └────┬────┘         │        │      │         │          │  │
+│  │       │              │        │      │         │          │  │
+│  │  ┌────▼────────┐     │        │      │         │          │  │
+│  │  │ffmpeg_runner│─────┼────────┼──────▶         │          │  │
+│  │  │(Docker Ctrl)│     │        │      │         │          │  │
+│  │  └─────────────┘     │        │      │         │          │  │
+│  └───────────┬──────────┴────────┘      └─────────┼──────────┘  │
+└──────────────┼────────────────────────────────────┼─────────────┘
+               │                                    │
+         ┌─────▼─────┐                        ┌─────▼─────┐
+         │  YouTube  │                        │   RTSP    │
+         │   API     │                        │  Camera   │
+         └───────────┘                        └───────────┘
+```
+
+Hệ thống sử dụng kiến trúc **Controller-Agent** (Điều khiển - Thực thi):
+
+1. **Controller**: Container chạy Python quản lý YouTube API, lập lịch xoay vòng và điều khiển container stream thông qua Docker socket.
+2. **FFmpeg Agent**: Container `linuxserver/ffmpeg` hiệu suất cao được tạo động bởi controller để xử lý việc truyền tải video thực tế.
+
+---
+
 ## Xử lý sự cố
 
 ### ❌ Lỗi "OOB flow has been blocked"
@@ -289,17 +327,18 @@ docker compose restart
 ```
 camera-live/
 ├── src/
-│   ├── main.py          # Bộ điều phối chính
+│   ├── main.py          # Bộ điều phối chính (Controller)
 │   ├── youtube_api.py   # Client YouTube API
-│   ├── ffmpeg_runner.py # Quản lý FFmpeg
+│   ├── ffmpeg_runner.py # Quản lý container FFmpeg
 │   ├── scheduler.py     # Lập lịch xoay stream
 │   └── oauth_setup.py   # Script setup OAuth
 ├── data/
 │   └── token.json       # Token OAuth (tự động tạo)
 ├── logs/                # File log (tự động tạo)
-├── .venv/               # Python virtual environment
-├── Dockerfile
-├── docker-compose.yml
+├── Dockerfile           # Định nghĩa image Controller
+├── docker-compose.yml   # Cấu hình chạy local
+├── docker-compose.prod.yml # Cấu hình chạy production
+├── DEPLOY.md            # Hướng dẫn deploy chi tiết
 ├── requirements.txt
 ├── .env.example
 ├── .env                 # Cấu hình của bạn
