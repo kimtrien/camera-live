@@ -173,7 +173,10 @@ class StreamScheduler:
         self._stop_event.set()
         
         if self._timer_thread and self._timer_thread.is_alive():
-            self._timer_thread.join(timeout=5)
+            if self._timer_thread != threading.current_thread():
+                self._timer_thread.join(timeout=5)
+            else:
+                logger.debug("stop_timer called from timer thread, skipping join")
         
         with self._lock:
             self.state = SchedulerState.IDLE
