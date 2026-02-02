@@ -204,6 +204,19 @@ docker compose ps
 | `{timestamp}`     | 20260201_163000  | Timestamp đầy đủ |
 | `{stream_number}` | 1                | Số thứ tự stream |
 
+### Thông báo Telegram (Tùy chọn)
+
+Để nhận thông báo qua Telegram khi có stream mới bắt đầu:
+
+1. Tạo Telegram bot qua [@BotFather](https://t.me/BotFather) và lấy **Bot Token**.
+2. Lấy **Chat ID** của bạn (ví dụ: nhắn tin cho bot và kiểm tra updates hoặc dùng `@userinfobot`).
+3. Thêm vào file `.env`:
+
+```bash
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
+```
+
 ### Ví dụ mẫu tiêu đề
 
 ```env

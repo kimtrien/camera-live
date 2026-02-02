@@ -130,6 +130,19 @@ All configuration is via the `.env` file:
 - `{timestamp}` - Full timestamp
 - `{stream_number}` - Sequential stream number
 
+### Telegram Notifications (Optional)
+
+To enable Telegram notifications when a new stream starts:
+
+1. Create a Telegram bot via [@BotFather](https://t.me/BotFather) and get the **Bot Token**.
+2. Get your **Chat ID** (e.g., by messaging the bot and checking updates or using `@userinfobot`).
+3. Add to `.env`:
+
+```bash
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
+```
+
 ---
 
 ## Troubleshooting

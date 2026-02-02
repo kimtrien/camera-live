@@ -11,6 +11,7 @@ import signal
 import logging
 import time
 import threading
+import requests
 from datetime import datetime
 from typing import Optional
 
@@ -55,6 +56,8 @@ class CameraLiveOrchestrator:
         self.description = os.getenv("STREAM_DESCRIPTION", "24/7 Camera Livestream")
         self.privacy_status = os.getenv("PRIVACY_STATUS", "public")
         self.timezone = os.getenv("TIMEZONE", "UTC")
+        self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
         
         # Validate required configuration
         self._validate_config()
@@ -139,6 +142,24 @@ class CameraLiveOrchestrator:
         logger.info("Stream rotation triggered by scheduler")
         self._rotate_stream()
     
+    def _send_telegram_notification(self, message: str):
+        """Send notification to Telegram."""
+        if not self.telegram_bot_token or not self.telegram_chat_id:
+            return
+            
+        try:
+            url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
+            payload = {
+                "chat_id": self.telegram_chat_id,
+                "text": message,
+                "parse_mode": "HTML"
+            }
+            response = requests.post(url, json=payload, timeout=10)
+            if response.status_code != 200:
+                logger.error("Failed to send Telegram notification: %s", response.text)
+        except Exception as e:
+            logger.error("Error sending Telegram notification: %s", str(e))
+
     def _rotate_stream(self):
         """
         Rotate to a new stream.
@@ -164,6 +185,16 @@ class CameraLiveOrchestrator:
             if self.ffmpeg and self.ffmpeg.is_running():
                 logger.info("Stopping current FFmpeg stream...")
                 self.ffmpeg.stop()
+                
+                # Ensure FFmpeg is truly stopped
+                waited = 0
+                while self.ffmpeg.is_running() and waited < 10:
+                    time.sleep(1)
+                    waited += 1
+                
+                if self.ffmpeg.is_running():
+                    logger.warning("FFmpeg did not stop gracefully, forcing cleanup")
+                    # This might need more aggressive cleanup if implemented in ffmpeg_runner
             
             # Stop scheduler timer
             if self.scheduler:
@@ -240,6 +271,14 @@ class CameraLiveOrchestrator:
             logger.info("Livestream created successfully")
             logger.info("Broadcast ID: %s", broadcast_id)
             logger.info("Stream ID: %s", stream_id)
+            
+            # Send Telegram notification
+            stream_url = f"https://youtu.be/{broadcast_id}"
+            self._send_telegram_notification(
+                f"🔴 <b>Camera Live Stream Started</b>\n\n"
+                f"<b>Title:</b> {title}\n"
+                f"<b>Link:</b> {stream_url}"
+            )
             
             # Wait a moment for YouTube to be ready
             logger.info("Waiting for YouTube to be ready...")
