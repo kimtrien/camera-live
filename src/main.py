@@ -57,7 +57,9 @@ class CameraLiveOrchestrator:
         self.privacy_status = os.getenv("PRIVACY_STATUS", "public")
         self.timezone = os.getenv("TIMEZONE", "UTC")
         self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+
         self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        self.max_retry_attempts = int(os.getenv("MAX_RETRY_ATTEMPTS", "3"))
         
         # Validate required configuration
         self._validate_config()
@@ -96,7 +98,9 @@ class CameraLiveOrchestrator:
         logger.info("RTSP URL: %s", self._mask_url(self.rtsp_url))
         logger.info("Stream duration: %.1f hours", self.duration_hours)
         logger.info("Privacy status: %s", self.privacy_status)
+
         logger.info("Timezone: %s", self.timezone)
+        logger.info("Max retry attempts: %d", self.max_retry_attempts)
     
     def _mask_url(self, url: str) -> str:
         """Mask sensitive parts of URL for logging."""
@@ -226,16 +230,26 @@ class CameraLiveOrchestrator:
             time.sleep(10)
             
             # Create new livestream
-            if not self._start_new_stream():
-                logger.error("Failed to start new stream, will retry in 60 seconds")
-                time.sleep(60)
-                if not self._start_new_stream():
-                    logger.error("Second attempt failed, waiting for manual intervention")
-                    # Keep trying every 5 minutes
-                    while not self._shutdown_event.is_set():
-                        time.sleep(300)
-                        if self._start_new_stream():
-                            break
+
+            if not self._start_stream_with_retries():
+                logger.error("All attempts to start new stream failed")
+                # Send failure notification
+                self._send_telegram_notification(
+                    f"⛔ <b>Stream Rotation Failed</b>\n\n"
+                    f"Failed to start new stream after {self.max_retry_attempts} attempts.\n"
+                    f"Please check the server logs."
+                )
+                
+                # Keep trying every 5 minutes (fallback safety)
+                while not self._shutdown_event.is_set():
+                    time.sleep(300)
+                    if self._start_stream_with_retries():
+                         # Notification on recovery
+                        self._send_telegram_notification(
+                            "✅ <b>Stream Recovered</b>\n\n"
+                            "Stream has been successfully restarted after previous failure."
+                        )
+                        break
             
             logger.info("=" * 50)
             logger.info("STREAM ROTATION COMPLETED")
@@ -318,6 +332,35 @@ class CameraLiveOrchestrator:
         except Exception as e:
             logger.error("Failed to start new stream: %s", str(e))
             return False
+
+    def _start_stream_with_retries(self) -> bool:
+        """
+        Attempt to start the stream with retries.
+        
+        Returns:
+            bool: True if successful, False if all retries failed
+        """
+        for attempt in range(1, self.max_retry_attempts + 1):
+            logger.info("Starting stream attempt %d/%d", attempt, self.max_retry_attempts)
+            
+            if self._start_new_stream():
+                if attempt > 1:
+                    logger.info("Stream started successfully on attempt %d", attempt)
+                return True
+                
+            logger.warning("Stream start failed on attempt %d", attempt)
+            
+            if attempt < self.max_retry_attempts:
+                # Exponential backoff or fixed delay? Let's use 60s as requested/implied logic
+                # Default to 60s wait between retries
+                wait_time = 60
+                logger.info("Waiting %d seconds before next retry...", wait_time)
+                
+                # Wait but allow interruption
+                if self._shutdown_event.wait(timeout=wait_time):
+                    return False
+                    
+        return False
     
     def run(self):
         """Main run loop."""
@@ -361,9 +404,18 @@ class CameraLiveOrchestrator:
             
             # Start first stream
             logger.info("Starting initial stream...")
-            if not self._start_new_stream():
-                logger.error("Failed to start initial stream")
-                raise RuntimeError("Could not start initial stream")
+
+            if not self._start_stream_with_retries():
+                error_msg = f"Failed to start initial stream after {self.max_retry_attempts} attempts"
+                logger.error(error_msg)
+                
+                self._send_telegram_notification(
+                    f"⛔ <b>Initial Startup Failed</b>\n\n"
+                    f"{error_msg}.\n"
+                    f"Please check configuration and connection."
+                )
+                
+                raise RuntimeError(error_msg)
             
             # Main loop - just monitor and log status
             logger.info("Entering main monitoring loop...")
