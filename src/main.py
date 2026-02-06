@@ -369,7 +369,7 @@ class CameraLiveOrchestrator:
         start_time = time.time()
         
         while time.time() - start_time < self.rtsp_check_timeout:
-            if self.ffmpeg.check_stream_availability(timeout=10):
+            if self.ffmpeg.check_stream_availability(timeout=60):
                 logger.info("RTSP source is ready")
                 return True
             
