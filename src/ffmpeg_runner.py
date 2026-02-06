@@ -334,3 +334,40 @@ class FFmpegRunner:
         ], timeout=10)
         
         return stdout if success else ""
+    
+    def check_stream_availability(self, timeout: int = 20) -> bool:
+        """
+        Check if the RTSP stream is available using ffprobe.
+        
+        Args:
+            timeout: Timeout in seconds for the probe
+            
+        Returns:
+            bool: True if stream is available
+        """
+        logger.info("Checking stream availability for: %s", self.rtsp_url)
+        
+        # Use ffprobe to check stream
+        # -v error: Show only errors
+        # -show_format: Show format info (implies successful connection)
+        # -rtsp_transport tcp: Force TCP
+        probe_cmd = [
+            "run", "--rm",
+            "--network", "host",
+            "--entrypoint", "ffprobe",
+            self.ffmpeg_image,
+            "-v", "error",
+            "-show_format",
+            "-rtsp_transport", "tcp",
+            "-i", self.rtsp_url
+        ]
+        
+        success, stdout, stderr = self._run_docker_command(probe_cmd, timeout=timeout)
+        
+        if success:
+            logger.info("Stream check passed")
+            return True
+        else:
+            logger.warning("Stream check failed: %s", stderr)
+            return False
+

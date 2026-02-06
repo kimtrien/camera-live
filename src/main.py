@@ -12,7 +12,6 @@ import logging
 import time
 import threading
 import requests
-from datetime import datetime
 from typing import Optional
 
 from youtube_api import YouTubeAPI, YouTubeAPIError
@@ -57,9 +56,12 @@ class CameraLiveOrchestrator:
         self.privacy_status = os.getenv("PRIVACY_STATUS", "public")
         self.timezone = os.getenv("TIMEZONE", "UTC")
         self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-
         self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        
         self.max_retry_attempts = int(os.getenv("MAX_RETRY_ATTEMPTS", "3"))
+        self.rtsp_check_timeout = int(os.getenv("RTSP_CHECK_TIMEOUT", "60"))
+        
+
         
         # Validate required configuration
         self._validate_config()
@@ -76,7 +78,10 @@ class CameraLiveOrchestrator:
         
         self._shutdown_event = threading.Event()
         self._rotation_lock = threading.Lock()
+        self._shutdown_event = threading.Event()
+        self._rotation_lock = threading.Lock()
         self._is_rotating = False
+        self.retry_count = 0
     
     def _validate_config(self):
         """Validate required configuration values."""
@@ -101,6 +106,7 @@ class CameraLiveOrchestrator:
 
         logger.info("Timezone: %s", self.timezone)
         logger.info("Max retry attempts: %d", self.max_retry_attempts)
+        logger.info("RTSP check timeout: %d seconds", self.rtsp_check_timeout)
     
     def _mask_url(self, url: str) -> str:
         """Mask sensitive parts of URL for logging."""
@@ -163,6 +169,8 @@ class CameraLiveOrchestrator:
                 logger.error("Failed to send Telegram notification: %s", response.text)
         except Exception as e:
             logger.error("Error sending Telegram notification: %s", str(e))
+
+
 
     def _rotate_stream(self):
         """
@@ -243,13 +251,20 @@ class CameraLiveOrchestrator:
                 # Keep trying every 5 minutes (fallback safety)
                 while not self._shutdown_event.is_set():
                     time.sleep(300)
-                    if self._start_stream_with_retries():
-                         # Notification on recovery
-                        self._send_telegram_notification(
-                            "✅ <b>Stream Recovered</b>\n\n"
-                            "Stream has been successfully restarted after previous failure."
-                        )
-                        break
+                    # Standby recovery Logic: Check source -> Start -> Reset
+                    logger.info("Retrying stream rotation (standby mode)...")
+                    if self.ffmpeg.check_stream_availability():
+                        logger.info("Source became available. Attempting to start stream...")
+                        if self._start_new_stream():
+                             # Notification on recovery
+                            self._send_telegram_notification(
+                                "✅ <b>Stream Recovered</b>\n\n"
+                                "Stream has been successfully restarted after previous failure."
+                            )
+                            self._reset_retry_count()
+                            break
+                    else:
+                        logger.info("Source still unavailable in standby mode.")
             
             logger.info("=" * 50)
             logger.info("STREAM ROTATION COMPLETED")
@@ -333,33 +348,79 @@ class CameraLiveOrchestrator:
             logger.error("Failed to start new stream: %s", str(e))
             return False
 
+        except Exception as e:
+            logger.error("Failed to start new stream: %s", str(e))
+            return False
+
+
+    def _reset_retry_count(self):
+        """Reset retry count to 0."""
+        logger.info("Resetting retry count to 0")
+        self.retry_count = 0
+
+    def _wait_for_rtsp_source(self) -> bool:
+        """
+        Wait for RTSP source to be available within timeout.
+        
+        Returns:
+            bool: True if source is ready, False if timed out
+        """
+        logger.info("Waiting for RTSP source to be ready (timeout: %ds)...", self.rtsp_check_timeout)
+        start_time = time.time()
+        
+        while time.time() - start_time < self.rtsp_check_timeout:
+            if self.ffmpeg.check_stream_availability(timeout=10):
+                logger.info("RTSP source is ready")
+                return True
+            
+            logger.info("RTSP source not ready, retrying in 5s...")
+            if self._shutdown_event.wait(timeout=5):
+                return False
+                
+        logger.error("RTSP Source check timed out after %d seconds", self.rtsp_check_timeout)
+        
+        # Send notification
+        error_msg = f"RTSP Source unavailable after {self.rtsp_check_timeout} seconds"
+        self._send_telegram_notification(f"⚠️ <b>Source Check Failed</b>\n\n{error_msg}")
+        
+        return False
+
     def _start_stream_with_retries(self) -> bool:
         """
-        Attempt to start the stream with retries.
+        Attempt to start the stream with persistent retries.
         
         Returns:
             bool: True if successful, False if all retries failed
         """
-        for attempt in range(1, self.max_retry_attempts + 1):
-            logger.info("Starting stream attempt %d/%d", attempt, self.max_retry_attempts)
+        # Load current retry count
+        current_retry = self.retry_count
+        
+        while current_retry < self.max_retry_attempts:
+            current_retry += 1
+            self.retry_count = current_retry
+            logger.info("Stream start attempt %d/%d (In-Memory)", current_retry, self.max_retry_attempts)
             
-            if self._start_new_stream():
-                if attempt > 1:
-                    logger.info("Stream started successfully on attempt %d", attempt)
-                return True
-                
-            logger.warning("Stream start failed on attempt %d", attempt)
+            # 1. Pre-flight Check: Wait for Source
+            if not self._wait_for_rtsp_source():
+                logger.warning("Pre-flight check failed, aborting this attempt")
+                # Pre-flight failed, count as a failure attempt
+            else:
+                # 2. Try to start stream
+                if self._start_new_stream():
+                    logger.info("Stream started successfully")
+                    self._reset_retry_count()
+                    return True
             
-            if attempt < self.max_retry_attempts:
-                # Exponential backoff or fixed delay? Let's use 60s as requested/implied logic
-                # Default to 60s wait between retries
+            logger.warning("Attempt %d failed", current_retry)
+            
+            if current_retry < self.max_retry_attempts:
                 wait_time = 60
                 logger.info("Waiting %d seconds before next retry...", wait_time)
-                
-                # Wait but allow interruption
                 if self._shutdown_event.wait(timeout=wait_time):
                     return False
-                    
+        
+        # If we reach here, we exceeded max retries
+        logger.error("Max retry attempts (%d) reached", self.max_retry_attempts)
         return False
     
     def run(self):
@@ -412,10 +473,22 @@ class CameraLiveOrchestrator:
                 self._send_telegram_notification(
                     f"⛔ <b>Initial Startup Failed</b>\n\n"
                     f"{error_msg}.\n"
-                    f"Please check configuration and connection."
+                    f"Entering standby mode (retrying every 5 minutes)."
                 )
                 
-                raise RuntimeError(error_msg)
+                # Enter Standby Loop instead of crashing
+                logger.info("Entering standby mode...")
+                while not self._shutdown_event.is_set():
+                    time.sleep(300)
+                    logger.info("Standby mode: Checking source availability...")
+                    if self.ffmpeg.check_stream_availability():
+                        logger.info("Source is available. Attempting to start initial stream...")
+                        if self._start_new_stream():
+                            logger.info("Stream started from standby mode.")
+                            self._reset_retry_count()
+                            break
+                    else:
+                        logger.info("Source still unavailable.")
             
             # Main loop - just monitor and log status
             logger.info("Entering main monitoring loop...")
