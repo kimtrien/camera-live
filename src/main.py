@@ -60,6 +60,7 @@ class CameraLiveOrchestrator:
         
         self.max_retry_attempts = int(os.getenv("MAX_RETRY_ATTEMPTS", "3"))
         self.rtsp_check_timeout = int(os.getenv("RTSP_CHECK_TIMEOUT", "60"))
+        self.stream_check_timeout = int(os.getenv("STREAM_CHECK_TIMEOUT", "60"))
         
 
         
@@ -369,7 +370,7 @@ class CameraLiveOrchestrator:
         start_time = time.time()
         
         while time.time() - start_time < self.rtsp_check_timeout:
-            if self.ffmpeg.check_stream_availability(timeout=60):
+            if self.ffmpeg.check_stream_availability(timeout=self.stream_check_timeout):
                 logger.info("RTSP source is ready")
                 return True
             
