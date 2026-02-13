@@ -443,7 +443,7 @@ class CameraLiveOrchestrator:
                 if status == "active":
                     logger.info("Stream is now active!")
                     break
-                elif status in ["error", "noData"]:
+                elif status in ["error", "noData", "unknown"]:
                     if time.time() - start_time > 30:
                         logger.warning("Stream status is %s after 30s, continuing anyway", status)
                         break
