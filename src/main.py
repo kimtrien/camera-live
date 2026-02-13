@@ -12,7 +12,8 @@ import logging
 import time
 import threading
 import requests
-from typing import Optional
+import json
+from typing import Optional, Dict
 
 from youtube_api import YouTubeAPI, YouTubeAPIError
 from ffmpeg_runner import FFmpegRunner, FFmpegState
@@ -31,6 +32,50 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+class StateStore:
+    """Simple JSON file-based state persistence."""
+    
+    def __init__(self, file_path: str):
+        self.file_path = file_path
+        
+    def save(self, broadcast_id: str, stream_id: str, rtmp_url: str):
+        """Save stream state to file."""
+        data = {
+            "broadcast_id": broadcast_id,
+            "stream_id": stream_id,
+            "rtmp_url": rtmp_url,
+            "updated_at": time.time()
+        }
+        try:
+            os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
+            with open(self.file_path, 'w') as f:
+                json.dump(data, f)
+            logger.info("State saved to %s", self.file_path)
+        except Exception as e:
+            logger.error("Failed to save state: %s", str(e))
+
+    def load(self) -> Optional[Dict[str, str]]:
+        """Load stream state from file."""
+        if not os.path.exists(self.file_path):
+            return None
+        try:
+            with open(self.file_path, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error("Failed to load state: %s", str(e))
+            return None
+
+    def clear(self):
+        """Clear stored state file."""
+        if os.path.exists(self.file_path):
+            try:
+                os.remove(self.file_path)
+                logger.info("State cleared")
+            except Exception as e:
+                logger.error("Failed to clear state: %s", str(e))
+
 
 
 class CameraLiveOrchestrator:
@@ -83,6 +128,24 @@ class CameraLiveOrchestrator:
         self._rotation_lock = threading.Lock()
         self._is_rotating = False
         self.retry_count = 0
+        
+        # Persistence
+        self.state_store = StateStore("/app/data/stream_state.json")
+        self._restore_state()
+        
+    def _restore_state(self):
+        """Restore state from persistence if available."""
+        saved_state = self.state_store.load()
+        if saved_state:
+            logger.info("Found persisted state, restoring...")
+            self.current_broadcast_id = saved_state.get("broadcast_id")
+            self.current_stream_id = saved_state.get("stream_id")
+            self.current_rtmp_url = saved_state.get("rtmp_url")
+            
+            logger.info("Restored Broadcast ID: %s", self.current_broadcast_id)
+            logger.info("Restored Stream ID: %s", self.current_stream_id)
+        else:
+            logger.info("No persisted state found")
     
     def _validate_config(self):
         """Validate required configuration values."""
@@ -239,6 +302,14 @@ class CameraLiveOrchestrator:
             time.sleep(10)
             
             # Create new livestream
+            
+            # Explicitly clear old stream details to force new creation
+            self.current_broadcast_id = None
+            self.current_stream_id = None
+            self.current_rtmp_url = None
+            
+            # Clear persisted state
+            self.state_store.clear()
 
             if not self._start_stream_with_retries():
                 logger.error("All attempts to start new stream failed")
@@ -274,41 +345,80 @@ class CameraLiveOrchestrator:
         finally:
             with self._rotation_lock:
                 self._is_rotating = False
-    
+
+    def _cleanup_failed_start(self, broadcast_id: str, stream_id: str):
+        """
+        Clean up resources after a failed stream start.
+        
+        Args:
+            broadcast_id: Broadcast ID to delete
+            stream_id: Stream ID to delete
+        """
+        logger.info("Cleaning up failed stream start...")
+        
+        if self.youtube:
+            # Delete broadcast
+            if broadcast_id:
+                try:
+                    self.youtube.delete_broadcast(broadcast_id)
+                except Exception as e:
+                    logger.warning("Failed to delete broadcast during cleanup: %s", str(e))
+            
+            # Delete stream
+            if stream_id:
+                try:
+                    self.youtube.delete_stream(stream_id)
+                except Exception as e:
+                    logger.warning("Failed to delete stream during cleanup: %s", str(e))
+
     def _start_new_stream(self) -> bool:
         """
-        Create and start a new livestream.
+        Create (or reuse) and start a new livestream.
         
         Returns:
             bool: True if successful
         """
         try:
-            # Generate title
-            title = self.scheduler.generate_title()
-            logger.info("Creating new livestream: %s", title)
-            
-            # Create livestream on YouTube
-            broadcast_id, stream_id, rtmp_url = self.youtube.create_livestream(
-                title=title,
-                description=self.description,
-                privacy_status=self.privacy_status
-            )
-            
-            self.current_broadcast_id = broadcast_id
-            self.current_stream_id = stream_id
-            self.current_rtmp_url = rtmp_url
-            
-            logger.info("Livestream created successfully")
-            logger.info("Broadcast ID: %s", broadcast_id)
-            logger.info("Stream ID: %s", stream_id)
-            
-            # Send Telegram notification
-            stream_url = f"https://youtu.be/{broadcast_id}"
-            self._send_telegram_notification(
-                f"🔴 <b>Camera Live Stream Started</b>\n\n"
-                f"<b>Title:</b> {title}\n"
-                f"<b>Link:</b> {stream_url}"
-            )
+            # Check if we already have a valid broadcast to reuse (e.g. from a failed attempt)
+            if self.current_broadcast_id and self.current_stream_id and self.current_rtmp_url:
+                logger.info("Reusing existing broadcast/stream details...")
+                broadcast_id = self.current_broadcast_id
+                stream_id = self.current_stream_id
+                rtmp_url = self.current_rtmp_url
+                
+                logger.info("Reusing Broadcast ID: %s", broadcast_id)
+                logger.info("Reusing Stream ID: %s", stream_id)
+                
+            else:
+                # Generate title
+                title = self.scheduler.generate_title()
+                logger.info("Creating new livestream: %s", title)
+                
+                # Create livestream on YouTube
+                broadcast_id, stream_id, rtmp_url = self.youtube.create_livestream(
+                    title=title,
+                    description=self.description,
+                    privacy_status=self.privacy_status
+                )
+                
+                self.current_broadcast_id = broadcast_id
+                self.current_stream_id = stream_id
+                self.current_rtmp_url = rtmp_url
+                
+                # Save state
+                self.state_store.save(broadcast_id, stream_id, rtmp_url)
+                
+                logger.info("Livestream created successfully")
+                logger.info("Broadcast ID: %s", broadcast_id)
+                logger.info("Stream ID: %s", stream_id)
+                
+                # Send Telegram notification
+                stream_url = f"https://youtu.be/{broadcast_id}"
+                self._send_telegram_notification(
+                    f"🔴 <b>Camera Live Stream Started</b>\n\n"
+                    f"<b>Title:</b> {title}\n"
+                    f"<b>Link:</b> {stream_url}"
+                )
             
             # Wait a moment for YouTube to be ready
             logger.info("Waiting for YouTube to be ready...")
@@ -318,6 +428,7 @@ class CameraLiveOrchestrator:
             logger.info("Starting FFmpeg...")
             if not self.ffmpeg.start(rtmp_url):
                 logger.error("Failed to start FFmpeg")
+                # Do NOT cleanup here; allow retry to reuse existing broadcast
                 return False
             
             # Wait for stream to be active
@@ -347,6 +458,8 @@ class CameraLiveOrchestrator:
             
         except Exception as e:
             logger.error("Failed to start new stream: %s", str(e))
+            # Only cleanup if it was a creation error (implied by lack of IDs being set yet)
+            # giving up on this attempt, but keeping state for retry if IDs were set
             return False
 
         except Exception as e:

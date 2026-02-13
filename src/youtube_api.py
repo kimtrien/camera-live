@@ -464,3 +464,26 @@ class YouTubeAPI:
         except YouTubeAPIError as e:
             logger.warning("Failed to delete stream %s: %s", stream_id, str(e))
             return False
+
+    def delete_broadcast(self, broadcast_id: str) -> bool:
+        """
+        Delete a live broadcast.
+        
+        Args:
+            broadcast_id: The broadcast ID to delete
+            
+        Returns:
+            bool: True if deletion successful
+        """
+        logger.info("Deleting broadcast: %s", broadcast_id)
+        
+        try:
+            self._api_call_with_retry(
+                self.youtube.liveBroadcasts().delete,
+                id=broadcast_id
+            )
+            logger.info("Broadcast %s deleted successfully", broadcast_id)
+            return True
+        except YouTubeAPIError as e:
+            logger.warning("Failed to delete broadcast %s: %s", broadcast_id, str(e))
+            return False
