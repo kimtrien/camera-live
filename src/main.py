@@ -107,6 +107,7 @@ class CameraLiveOrchestrator:
         self.rtsp_check_timeout = int(os.getenv("RTSP_CHECK_TIMEOUT", "60"))
         self.stream_check_timeout = int(os.getenv("STREAM_CHECK_TIMEOUT", "60"))
         self.skip_rtsp_check = os.getenv("SKIP_RTSP_CHECK", "false").lower() == "true"
+        self.rtsp_transport = os.getenv("RTSP_TRANSPORT", "tcp")
         
 
         
@@ -489,7 +490,8 @@ class CameraLiveOrchestrator:
         start_time = time.time()
         
         while time.time() - start_time < self.rtsp_check_timeout:
-            if self.ffmpeg.check_stream_availability(timeout=self.stream_check_timeout):
+            is_available, _, _ = self.ffmpeg.check_stream_availability(timeout=self.stream_check_timeout)
+            if is_available:
                 logger.info("RTSP source is ready")
                 return True
             
@@ -580,7 +582,8 @@ class CameraLiveOrchestrator:
             logger.info("Initializing FFmpeg runner...")
             self.ffmpeg = FFmpegRunner(
                 rtsp_url=self.rtsp_url,
-                on_crash=self._on_ffmpeg_crash
+                on_crash=self._on_ffmpeg_crash,
+                transport=self.rtsp_transport
             )
             
             # Start first stream
@@ -601,7 +604,8 @@ class CameraLiveOrchestrator:
                 while not self._shutdown_event.is_set():
                     time.sleep(300)
                     logger.info("Standby mode: Checking source availability...")
-                    if self.ffmpeg.check_stream_availability():
+                    is_available, _, _ = self.ffmpeg.check_stream_availability()
+                    if is_available:
                         logger.info("Source is available. Attempting to start initial stream...")
                         if self._start_new_stream():
                             logger.info("Stream started from standby mode.")

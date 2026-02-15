@@ -38,7 +38,8 @@ class FFmpegRunner:
         self,
         rtsp_url: str,
         on_crash: Optional[Callable[[], None]] = None,
-        reconnect_delay: int = 5
+        reconnect_delay: int = 5,
+        transport: str = "tcp"
     ):
         """
         Initialize FFmpeg runner.
@@ -47,10 +48,12 @@ class FFmpegRunner:
             rtsp_url: RTSP camera URL
             on_crash: Callback function when FFmpeg crashes
             reconnect_delay: Delay in seconds before reconnect attempts
+            transport: RTSP transport protocol (tcp, udp, http)
         """
         self.rtsp_url = rtsp_url
         self.on_crash = on_crash
         self.reconnect_delay = reconnect_delay
+        self.transport = transport
         
         # Container names
         self.ffmpeg_container = "camera-ffmpeg-stream"
@@ -74,7 +77,7 @@ class FFmpegRunner:
             List of command arguments
         """
         return [
-            "-rtsp_transport", "tcp",
+            "-rtsp_transport", self.transport,
             "-i", self.rtsp_url,
             "-map", "0:v:0",
             "-map", "0:a?",
@@ -335,30 +338,32 @@ class FFmpegRunner:
         
         return stdout if success else ""
     
-    def check_stream_availability(self, timeout: int = 20) -> bool:
+    def check_stream_availability(self, timeout: int = 20, transport: Optional[str] = None) -> tuple[bool, str, str]:
         """
         Check if the RTSP stream is available using ffprobe.
         
         Args:
             timeout: Timeout in seconds for the probe
+            transport: RTSP transport protocol (tcp, udp, http). Defaults to self.transport.
             
         Returns:
-            bool: True if stream is available
+            Tuple: (is_available, stdout, stderr)
         """
-        logger.info("Checking stream availability for: %s", self.rtsp_url)
+        transport = transport or self.transport
+        logger.info("Checking stream availability for: %s (transport: %s)", self.rtsp_url, transport)
         
         # Use ffprobe to check stream
-        # -v error: Show only errors
-        # -show_format: Show format info (implies successful connection)
-        # -rtsp_transport tcp: Force TCP
+        # -v debug: Show all debug info
+        # -show_format: Show format info
+        # -rtsp_transport: Set transport protocol
         probe_cmd = [
             "run", "--rm",
             "--network", "host",
             "--entrypoint", "ffprobe",
             self.ffmpeg_image,
-            "-v", "error",
+            "-v", "debug",
             "-show_format",
-            "-rtsp_transport", "tcp",
+            "-rtsp_transport", transport,
             "-i", self.rtsp_url
         ]
         
@@ -366,8 +371,8 @@ class FFmpegRunner:
         
         if success:
             logger.info("Stream check passed")
-            return True
+            return True, stdout, stderr
         else:
-            logger.warning("Stream check failed: %s", stderr)
-            return False
+            logger.warning("Stream check failed")
+            return False, stdout, stderr
 

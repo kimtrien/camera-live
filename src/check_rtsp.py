@@ -23,7 +23,7 @@ def setup_logging(debug: bool = False):
     if debug:
         logging.getLogger("ffmpeg_runner").setLevel(logging.DEBUG)
 
-def check_rtsp(debug: bool = False):
+def check_rtsp(debug: bool = False, timeout: int = 30, transport: str = "tcp"):
     """Check if RTSP stream is available using FFmpegRunner."""
     setup_logging(debug)
     logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ def check_rtsp(debug: bool = False):
     logger.info(f"Checking RTSP URL: {masked_url}")
     
     runner = FFmpegRunner(rtsp_url=rtsp_url)
-    is_available = runner.check_stream_availability(timeout=10)
+    is_available, stdout, stderr = runner.check_stream_availability(timeout=timeout, transport=transport)
     
     if is_available:
         logger.info("✅ Stream is UP and reachable.")
@@ -57,8 +57,16 @@ def check_rtsp(debug: bool = False):
     else:
         logger.error("❌ Stream is DOWN or unreachable.")
         if debug:
+            logger.error("\n" + "="*50)
+            logger.error("FULL DEBUG LOGS (STDERR):")
+            logger.error("="*50)
+            logger.error(stderr if stderr else "No output in stderr")
+            logger.error("="*50 + "\n")
+            
             logger.debug("Tip: Check if the RTSP URL is correct and the camera is online.")
             logger.debug("Tip: Ensure no firewall is blocking the connection.")
+            logger.debug(f"Tip: Try increasing the timeout (current: {timeout}s) using --timeout.")
+            logger.debug(f"Tip: Try changing transport protocol (current: {transport}) using --transport [tcp|udp].")
         else:
             logger.info("Run with --debug for more details.")
         return False
@@ -66,9 +74,11 @@ def check_rtsp(debug: bool = False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Check RTSP stream availability.")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    parser.add_argument("--timeout", type=int, default=30, help="Timeout in seconds (default: 30)")
+    parser.add_argument("--transport", type=str, default="tcp", choices=["tcp", "udp", "http"], help="RTSP transport (default: tcp)")
     args = parser.parse_args()
     
-    if check_rtsp(debug=args.debug):
+    if check_rtsp(debug=args.debug, timeout=args.timeout, transport=args.transport):
         sys.exit(0)
     else:
         sys.exit(1)
