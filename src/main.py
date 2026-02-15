@@ -106,6 +106,7 @@ class CameraLiveOrchestrator:
         self.max_retry_attempts = int(os.getenv("MAX_RETRY_ATTEMPTS", "3"))
         self.rtsp_check_timeout = int(os.getenv("RTSP_CHECK_TIMEOUT", "60"))
         self.stream_check_timeout = int(os.getenv("STREAM_CHECK_TIMEOUT", "60"))
+        self.skip_rtsp_check = os.getenv("SKIP_RTSP_CHECK", "false").lower() == "true"
         
 
         
@@ -171,6 +172,7 @@ class CameraLiveOrchestrator:
         logger.info("Timezone: %s", self.timezone)
         logger.info("Max retry attempts: %d", self.max_retry_attempts)
         logger.info("RTSP check timeout: %d seconds", self.rtsp_check_timeout)
+        logger.info("Skip RTSP check: %s", self.skip_rtsp_check)
     
     def _mask_url(self, url: str) -> str:
         """Mask sensitive parts of URL for logging."""
@@ -479,6 +481,10 @@ class CameraLiveOrchestrator:
         Returns:
             bool: True if source is ready, False if timed out
         """
+        if self.skip_rtsp_check:
+            logger.warning("Skipping RTSP source check (configured via SKIP_RTSP_CHECK)")
+            return True
+
         logger.info("Waiting for RTSP source to be ready (timeout: %ds)...", self.rtsp_check_timeout)
         start_time = time.time()
         
