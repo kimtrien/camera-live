@@ -77,12 +77,14 @@ class FFmpegRunner:
             List of command arguments
         """
         return [
+            "-re",
             "-rtsp_transport", self.transport,
             "-i", self.rtsp_url,
             "-map", "0:v:0",
             "-map", "0:a?",
             "-c:v", "copy",
             "-c:a", "copy",
+            "-bsf:a", "aac_adtstoasc",
             "-f", "flv",
             rtmp_url
         ]

@@ -490,10 +490,27 @@ class CameraLiveOrchestrator:
         start_time = time.time()
         
         while time.time() - start_time < self.rtsp_check_timeout:
+            # Check with current transport
             is_available, _, _ = self.ffmpeg.check_stream_availability(timeout=self.stream_check_timeout)
+            
             if is_available:
-                logger.info("RTSP source is ready")
+                logger.info("RTSP source is ready (transport: %s)", self.rtsp_transport)
                 return True
+            
+            # If failed and current transport is TCP, try switching to UDP
+            if self.rtsp_transport == "tcp":
+                logger.warning("TCP connection failed. Attempting to switch to UDP...")
+                
+                # Temporarily check with UDP
+                udp_available, _, _ = self.ffmpeg.check_stream_availability(timeout=self.stream_check_timeout, transport="udp")
+                
+                if udp_available:
+                    logger.info("✅ Switch to UDP successful! Updating configuration...")
+                    self.rtsp_transport = "udp"
+                    self.ffmpeg.transport = "udp"  # Update runner instance
+                    return True
+                else:
+                    logger.warning("UDP switch attempt also failed.")
             
             logger.info("RTSP source not ready, retrying in 5s...")
             if self._shutdown_event.wait(timeout=5):
